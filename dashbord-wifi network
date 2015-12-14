@@ -1,0 +1,1350 @@
+var totalTempAry=[];
+var normalTempAry=[];
+var disabledTempAry=[];
+var wlanTenMinInfoAarry=[],wlanTweleveHouInfoArray=[];
+var totalBytesTweHouSumArry = new Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0,0,0);
+var totalBytesTenMinSumArry = new Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+var summaryTwelveHouClientState,summaryTwelveHouTraffic;
+var summaryClientState,summaryTraffic;
+var wlanTenMinutesCount= 0,wlanTweleveHoursCount= 0,wlanMaxTenMHistoryCountId,wlanMaxTweHsHistoryCountId,sumTenMinTimeArray= [],sumTwelveHourTimeArray= [];
+var commWifiId="";
+var wifiId;
+var currentWlanActive="wifiItemSummary";
+var combarStatus;
+var timeArry=[];
+var isSummary=true;
+var wlanListTwelveHoursTimer;
+var wlanLeftListTimer;
+var wlanXAxisLastTime;
+var periodTime=60000;
+//js object compare
+function compareWlanName(propertyName) {
+    return function (object1, object2) {
+        var value1 = object1[propertyName];
+        var value2 = object2[propertyName];
+        if (value2 > value1) {
+            return -1;
+        }
+        else if (value2 < value1) {
+            return 1;
+        }
+        else {
+            return 0;
+        }
+    }
+}
+RuckusWifiAssembly = {
+    getWifiLatestData :function(wifiList,flag){
+        var latestWlanTotalList=[],latestWlanNormalList=[],latestWlanDisabledList=[];
+        totalTempAry=[];normalTempAry=[];disabledTempAry=[];
+        wlanTenMinInfoAarry=[];wlanTenMinutesCount= 0//ten minutes data
+        if(wifiList!=null) {
+            if (wifiList.firstChild == null) {
+                jQuery("#wifiCombar div[class='status1']").html("Total" + "<b>" + 0);
+                jQuery("#wifiCombar div[class='status2']").html("Normal" + "<b>" + 0);
+                //num_zero
+                jQuery("#wifiCombar div[class='status3'] span[class='status_num num_zero']").html(0);
+                //combar and summary traffic is null
+                summaryClientState=null,summaryTraffic=null;
+                jQuery('#summaryWlanTraffic').html("");
+                jQuery('#combarTraffic').html("");
+                jQuery("#wifiContent .detail_tit").find('h3').html("There is no WiFi Networks");
+                RuckusWifiAssembly.removeLeftClientChartCss();
+                //when no data show the picture
+                RuckusWifiDashboard.wifiCoverRightShow();
+                jQuery('#combarClientState').addClass('sNoData').html('No Data');
+                jQuery('#combarTraffic').addClass('sNoData').html('No Data');
+                jQuery('#clientsTips').remove(); jQuery('#trafficTips').remove();
+            } else {//wifiNum >1
+                RuckusWifiDashboard.wifiRightCharShow();
+                $A(wifiList.childNodes).each(function (wlansvc, i) {
+                    if (i > 15) { //Wlan is the largest number 16,So the show only 16 wlan.(i start from 0).
+                        console.log("wlan more than 16");
+                        return false;
+                    }
+                    var history = wlansvc.childNodes[0];
+                    var wlanId = ARF.j_getAttr(wlansvc, 'id', '');
+                    var wlanName = ARF.j_getAttr(wlansvc, 'ssid', '');
+                    // enable type 0=enabled 1 = disabled 2=schedule wlan
+                    var enableType = ARF.j_getAttr(wlansvc, 'state', 'enabled');//disabled wlan  default is enable
+                    var rxBytes = ARF.j_getAttr(history, 'rx-bytes', '');
+                    var txBytes = ARF.j_getAttr(history, 'tx-bytes', '');
+                    var rssi = ARF.j_getAttr(history, 'rssi', '');
+                    RuckusWifiAssembly.createMoreThen5Wlan(i);
+                    var perTotalWlanInfo;
+                    perTotalWlanInfo= {wlanId: wlanId, wlanName: wlanName, enableType: enableType, rssi: rssi, rxBytes: rxBytes, txBytes: txBytes};
+                    if(enableType !=undefined && enableType!=""){
+                        var perNormalWlanInifo={};
+                        var perDisabledWlanInifo={};
+                        if(enableType == 'disabled') { //disabled
+                            perDisabledWlanInifo={wlanId: wlanId, wlanName: wlanName, enableType: enableType, rssi: rssi, rxBytes: rxBytes, txBytes: txBytes};
+                        }else{ //enabled and schedule wlan
+                            perNormalWlanInifo={wlanId: wlanId, wlanName: wlanName, enableType: enableType, rssi: rssi, rxBytes: rxBytes, txBytes: txBytes};
+                        }
+                    }
+                    if( perTotalWlanInfo.wlanId !=undefined  ){
+                        latestWlanTotalList.push(perTotalWlanInfo);
+                        totalTempAry.splice(0,0,perTotalWlanInfo);//put total wlaninfo to array
+                    } if(perNormalWlanInifo.wlanId !=undefined){
+                        latestWlanNormalList.push(perNormalWlanInifo);
+                        normalTempAry.splice(0,0,perNormalWlanInifo);//put total wlaninfo to array
+                    } if(perDisabledWlanInifo.wlanId !=undefined){
+                        latestWlanDisabledList.push(perDisabledWlanInifo);
+                        disabledTempAry.splice(0,0,perDisabledWlanInifo);//put total wlaninfo to array
+                    }
+                    //assembly charts data(history data rssi,rxbytes,txbytes) each wlan state(total normal disable)
+                    RuckusWifiAssembly.assemblyWifiTenMinSumHistoryData(rssi, rxBytes, txBytes, wlanId);
+                });
+                //assembly summary data
+                RuckusWifiAssembly.assemblyWlanTenMinSummaryHisData();
+                //order wlan by wlan name
+                totalTempAry=totalTempAry.sort(compareWlanName("wlanName"));
+                normalTempAry=normalTempAry.sort(compareWlanName("wlanName"));
+                disabledTempAry=disabledTempAry.sort(compareWlanName("wlanName"));
+                var currentDivId;
+                if(jQuery(".left_item_green_active").length !=0 || jQuery(".left_item_red_active").length !=0){
+                    if(jQuery(".left_item_green_active").length ==0){
+                        currentDivId=jQuery(".left_item_red_active").parent().find('label').eq(0).html();
+                    }else{
+                        currentDivId=jQuery(".left_item_green_active").parent().find('label').eq(0).html();
+                    }
+                }
+                //show client num
+                RuckusWifiDashboard.wifiClientShow(currentDivId);
+                // show client list
+                var clentState=jQuery('#wifiClientShow,#wifiClientShow + .show_more').parent().next().is(":hidden");
+                if(!clentState){// show
+                    RuckusWifiDashboard.refreshClientList();
+                }
+                // 1.set combar button num
+                RuckusWifiAssembly.setWifiCombarNum(totalTempAry.length,normalTempAry.length,disabledTempAry.length);
+                // show wlan list
+                RuckusWifiAssembly.assemblyWifiData(flag);
+            }
+        }
+    },
+    //   assembly wifi data ten minutes
+    assemblyWifiData : function(flag){
+        // show wlan list
+        if(combarStatus == undefined || combarStatus == "" || combarStatus == "total"){
+            // Assembly wifi left panel(show per wlan)
+            RuckusWifiDashboard.setPerWlanInfo(totalTempAry);
+        }
+        else if(combarStatus == "normal"){
+            RuckusWifiDashboard.setPerWlanInfo(normalTempAry);
+        }
+        else if(combarStatus == "disabled"){
+            //disabledTempAry.length>0
+            RuckusWifiDashboard.setPerWlanInfo(disabledTempAry);
+        }
+        if(flag){ //first request the page draw the echarts
+            //assembly combar charts
+            RuckusWifiAssembly.assemblyCombarChart();
+        }else{//not first request update the echarts
+            if(!summaryClientState.clientIsNull){
+                jQuery('#combarClientState').removeClass('sNoData');
+                if(jQuery('#combarClientState').children().length ==0){
+                    RuckusWifiAssembly.assemblyCombarChart();
+                }else{
+                    WFECharts.getCombarClientChart();
+                }
+            }else{
+                jQuery('#combarClientState').addClass('sNoData').html('No Data');
+                jQuery('#clientsTips').remove(); jQuery('#trafficTips').remove();
+            }
+            if(!summaryTraffic.trafficIsNull){
+                jQuery('#combarTraffic').removeClass('sNoData');
+                if(jQuery('#combarTraffic').children().length ==0){
+                    RuckusWifiAssembly.assemblyCombarChart();
+                }else{
+                    WFECharts.getCombarTrafficChart();
+                }
+            }else{
+                jQuery('#combarTraffic').addClass('sNoData').html('No Data');
+                jQuery('#clientsTips').remove(); jQuery('#trafficTips').remove();
+            }
+        }
+        //set combar tips
+        RuckusWifiAssembly.setCombarTotalTips();
+        //set summary left charts
+        RuckusWifiAssembly.setWlanSummaryLeftChart();
+        //add selected
+        RuckusWifiDashboard.addSelectPeriod();
+       if(!jQuery("#wifiCombar").next().is(":hidden")){
+           //set wifi right charts
+           var period;
+           if(RuckusWifiDashboard.getCookie('wlanTimePeriod')!=null && RuckusWifiDashboard.getCookie('wlanTimePeriod') !=""){
+               period = RuckusWifiDashboard.getCookie('wlanTimePeriod');
+           }
+           if(period == 2) {
+               //set summary right charts
+               if(jQuery("#wifiConnectionR").children().length != 0 || jQuery("#wifiTrafficR").children().length != 0){// init right charts
+                   //set summary right charts
+                   RuckusWifiAjax.getWlanTwelveHorusSummaryList(RuckusWifiAssembly.getWifiLatestTwelveHourData,'',period);
+                   //set right wifi clients status chart and  traffic chart
+                  // console.log("1 hour history data but 1 minutes update ");
+                   WFECharts.getChartData('another');
+               }
+           }
+        }else{
+           //when combar is closed, close the wlan right chart timer
+           if(wlanListTwelveHoursTimer){
+               clearTimeout(wlanListTwelveHoursTimer);
+           }
+       }
+
+        //check cookie
+        RuckusWifiDashboard.checkCookie();
+    },
+    updateWlanTenMinsWifiRightChart:function(wifiList){
+        wlanTenMinInfoAarry=[];wlanTenMinutesCount= 0//ten minutes data
+        if(wifiList!=null) {
+            if (wifiList.firstChild != null) {
+                $A(wifiList.childNodes).each(function (wlansvc, i) {
+                    var history = wlansvc.childNodes[0];
+                    var wlanId = ARF.j_getAttr(wlansvc, 'id', '');
+                    var rxBytes = ARF.j_getAttr(history, 'rx-bytes', '');
+                    var txBytes = ARF.j_getAttr(history, 'tx-bytes', '');
+                    var rssi = ARF.j_getAttr(history, 'rssi', '');
+                    //assembly charts data(history data rssi,rxbytes,txbytes) each wlan state(total normal disable)
+                    RuckusWifiAssembly.assemblyWifiTenMinSumHistoryData(rssi,rxBytes,txBytes,wlanId);
+                });
+            }
+            //assembly summary data
+            RuckusWifiAssembly.assemblyWlanTenMinSummaryHisData();
+            var period;
+            if(RuckusWifiDashboard.getCookie('wlanTimePeriod')!=null && RuckusWifiDashboard.getCookie('wlanTimePeriod') !=""){
+                period = RuckusWifiDashboard.getCookie('wlanTimePeriod');
+            }
+            if(period !=undefined) {
+                // PERIOD = 1 ,10 minutes history data
+                if (period == 1) {
+                    if(jQuery("#wifiConnectionR").children().length == 0 || jQuery("#wifiTrafficR").children().length == 0){// init right charts
+                        var currentDivId;
+                        if(jQuery(".left_item_green_active").length ==0){
+                            currentDivId=jQuery(".left_item_red_active").parent().find('label').eq(0).html();
+                        }else{
+                            currentDivId=jQuery(".left_item_green_active").parent().find('label').eq(0).html();
+                        }
+                        if(currentDivId !=undefined){
+                            // set current wlan charts
+                            RuckusWifiAssembly.setActiveWlanChart(currentDivId);
+                        }else{
+                            //set right wifi clients status chart and  traffic chart
+                            RuckusWifiDashboard.setWlanSummaryClientRightChar(summaryClientState);
+                            RuckusWifiDashboard.setWlanSummaryTrafficRightChar(summaryTraffic);
+                        }
+                    }else{// update the echarts
+                        WFECharts.getChartData('tenMin');
+                    }
+                }
+            }
+        }
+    },
+
+
+    getWifiLatestTwelveHourData :function(wifiList,flag){
+        // reload the data
+        wlanTweleveHouInfoArray=[];wlanTweleveHoursCount= 0;
+        if(wifiList!=null) {
+            $A(wifiList.childNodes).each(function (wlansvc, i) {
+                if (i > 15) { //Wlan is the largest number 16,So the show only 16 wlan.(i start from 0).
+                    console.log("wlan more than 16");
+                    return false;
+                }
+                var history = wlansvc.childNodes[0];
+                var wlanId = ARF.j_getAttr(wlansvc, 'id', '');
+                var rxBytes = ARF.j_getAttr(history, 'rx-bytes', '');
+                var txBytes = ARF.j_getAttr(history, 'tx-bytes', '');
+                var rssi = ARF.j_getAttr(history, 'rssi', '');
+                //assembly wlan summary list 12 hours
+                RuckusWifiAssembly.assemblyWifiTwelveHouHistoryData(rssi,rxBytes,txBytes,wlanId);
+            });
+            //assembly summary data 12 hours
+            RuckusWifiAssembly.assemblyWlanTwelveHoursSummaryHisData();
+            if(flag == undefined || flag == ""){// init 12 hours data and init or update the charts
+                if(!jQuery("#wifiCombar").next().is(":hidden")){
+                    if(jQuery("#wifiConnectionR").children().length == 0 || jQuery("#wifiTrafficR").children().length == 0){// init right charts
+                        var currentDivId;
+                        if(jQuery(".left_item_green_active").length ==0){
+                            currentDivId=jQuery(".left_item_red_active").parent().find('label').eq(0).html();
+                        }else{
+                            currentDivId=jQuery(".left_item_green_active").parent().find('label').eq(0).html();
+                        }
+                        if(currentDivId !=undefined){
+                            // set current wlan charts
+                            RuckusWifiAssembly.setActiveWlanChart(currentDivId);
+                        }else{
+                            //set right wifi clients status chart and  traffic chart
+                            RuckusWifiDashboard.setWlanSummaryClientRightChar(summaryTwelveHouClientState);
+                            RuckusWifiDashboard.setWlanSummaryTrafficRightChar(summaryTwelveHouTraffic);
+                        }
+                    }else{// update the echarts
+                        WFECharts.getChartData('another');
+                    }
+                }
+            }else if(flag == 'refresh'){// when add wlan ,just need refresh 12 hours history data
+                var period;
+                if(RuckusWifiDashboard.getCookie('wlanTimePeriod')!=null && RuckusWifiDashboard.getCookie('wlanTimePeriod') !=""){
+                    period = RuckusWifiDashboard.getCookie('wlanTimePeriod');
+                }
+                if(period !=undefined){
+                    if(period == 1){
+                        RuckusWifiAjax.getWlanSummaryList(RuckusWifiAssembly.assemblyCreateNewWifiData);
+                    }else{
+                        //set summary right charts
+                        RuckusWifiAjax.getWlanTwelveHorusSummaryList(RuckusWifiAssembly.assemblyCreateNewWifiData,'',period);
+                    }
+                }
+            }else if(flag =="delRefresh"){// when delete wlan init charts again.
+                //set right wifi clients status chart and  traffic chart
+                RuckusWifiDashboard.wlanActive();
+                RuckusWifiDashboard.setWlanSummaryClientRightChar(summaryTwelveHouClientState);
+                RuckusWifiDashboard.setWlanSummaryTrafficRightChar(summaryTwelveHouTraffic);
+            }
+        }
+    },
+
+
+    assemblyCreateNewWifiData : function(wifiList){
+        var totalWlanArray=[],noramlWlanArray=[],disabledWlanArray=[];
+        var period;
+        if(RuckusWifiDashboard.getCookie('wlanTimePeriod')!=null && RuckusWifiDashboard.getCookie('wlanTimePeriod') !=""){
+            period = RuckusWifiDashboard.getCookie('wlanTimePeriod');
+        }
+        if(period !=undefined){
+            if(period == 1){
+                wlanTenMinInfoAarry=[];wlanTenMinutesCount= 0;
+            }else{
+                wlanTweleveHouInfoArray=[];wlanTweleveHoursCount= 0;
+            }
+        }
+        if(wifiList!=null){
+            var wifiRes =  wifiList;
+            //hide others jQuery("div[id^='wifiLeftItem']").hide();
+            if(wifiList.firstChild == null){
+                jQuery("#wifiCombar div[class='status1']").html("Total"+"<b>"+ 0);
+                jQuery("#wifiCombar div[class='status2']").html("Normal"+"<b>"+ 0);
+                jQuery("#wifiCombar div[class='status3'] span[class='status_num num_zero']").html(0);
+                //combar and summary traffic is null
+                jQuery('#summaryWlanTraffic').html("");
+                jQuery('#combarTraffic').html("");
+                jQuery("#wifiContent .detail_tit").find('h3').html("There is no WiFi Networks");
+                RuckusWifiAssembly.removeLeftClientChartCss();
+                //when no data show the picture
+                RuckusWifiDashboard.wifiCoverRightShow();
+            }else{//wifiNum >1
+                RuckusWifiDashboard.wifiRightCharShow();
+                $A(wifiList.childNodes).each(function(wlansvc,i) {
+                    var history=wlansvc.childNodes[0];
+                    if(i>15){ //
+                        console.log("wlan more than 16");
+                        return false;
+                    }
+                    var wlanId = ARF.j_getAttr(wlansvc, 'id', '');
+                    var wlanName = ARF.j_getAttr(wlansvc, 'ssid', '');
+                    // enable type 0=enabled 1 = disabled 2=schedule wlan
+                    var enableType = ARF.j_getAttr(wlansvc,'state','enabled');//disabled wlan  default is enable
+                    var rxBytes = ARF.j_getAttr(history, 'rx-bytes', '');
+                    var txBytes = ARF.j_getAttr(history, 'tx-bytes', '');
+                    var rssi = ARF.j_getAttr(history, 'rssi', '');
+                    RuckusWifiAssembly.createMoreThen5Wlan(i);
+                    //total
+                    var perTotalWlanInfo={wlanId : wlanId , wlanName : wlanName ,enableType : enableType};
+                    if(enableType !=undefined && enableType!=""){
+                        var perNormalWlanInifo={};
+                        var perDisabledWlanInifo={};
+                        if(enableType == 'disabled') { //disabled
+                            perDisabledWlanInifo={wlanId : wlanId , wlanName : wlanName ,enableType : enableType};
+                        }else{ //enabled and schedule wlan
+                            perNormalWlanInifo={wlanId : wlanId , wlanName : wlanName ,enableType : enableType};
+                        }
+                    }
+                    if( perTotalWlanInfo.wlanId !=undefined  ){
+                        totalWlanArray.push(perTotalWlanInfo);//put total wlaninfo to array
+                    } if(perNormalWlanInifo.wlanId !=undefined){
+                        noramlWlanArray.push(perNormalWlanInifo);//put normal wlaninfo to array
+                    } if(perDisabledWlanInifo.wlanId !=undefined){
+                        disabledWlanArray.push(perDisabledWlanInifo);//put disabled wlaninfo to array
+                    }
+                    if(period !=undefined){
+                        if(period == 1){
+                            //assembly charts data(history data rssi,rxbytes,txbytes)
+                            RuckusWifiAssembly.assemblyWifiTenMinSumHistoryData(rssi,rxBytes,txBytes,wlanId);
+                        }else{
+                            //assembly left items
+                            RuckusWifiAssembly.assemblyWifiTenMinSumHistoryData(rssi,rxBytes,txBytes,wlanId);
+                            //assembly right charts data
+                            RuckusWifiAssembly.assemblyWifiTwelveHouHistoryData(rssi,rxBytes,txBytes,wlanId);
+                        }
+                    }
+                });
+                if(totalWlanArray !=undefined && totalTempAry  !=undefined){
+                    if(totalWlanArray.length > totalTempAry.length){
+                        var newWlan;
+                        var tempResult=RuckusWifiAssembly.compareWlanList(totalWlanArray,totalTempAry);
+                        if(tempResult.length >0 && tempResult !=undefined){
+                            newWlan=tempResult[0];
+                            var wlanId=newWlan.wlanId,wlanName=newWlan.wlanName,enableType=newWlan.enableType;
+                            var perTotalWlanInfo={wlanId : wlanId , wlanName : wlanName ,enableType : enableType};
+                            if(enableType !=undefined && enableType!=""){
+                                var perNormalWlanInifo={};
+                                var perDisabledWlanInifo={};
+                                if(enableType == 'disabled') { //disabled
+                                    perDisabledWlanInifo={wlanId : wlanId , wlanName : wlanName ,enableType : enableType};
+                                }else{ //enabled and schedule wlan
+                                    perNormalWlanInifo={wlanId : wlanId , wlanName : wlanName ,enableType : enableType};
+                                }
+                            }
+                            if( perTotalWlanInfo.wlanId !=undefined  ){
+                                totalTempAry.splice(0,0,perTotalWlanInfo);//put total wlaninfo to array
+                            } if(perNormalWlanInifo.wlanId !=undefined){
+                                normalTempAry.splice(0,0,perNormalWlanInifo);//put normal wlaninfo to array
+                            } if(perDisabledWlanInifo.wlanId !=undefined){
+                                disabledTempAry.splice(0,0,perDisabledWlanInifo);//put disabled wlaninfo to array
+                            }
+                            //set combar num
+                            RuckusWifiAssembly.setWifiCombarNum(totalTempAry.length,normalTempAry.length,disabledTempAry.length);
+                            if(period !=undefined){
+                                if(period == 1){
+                                    //assembly summary data
+                                    RuckusWifiAssembly.assemblyWlanTenMinSummaryHisData();
+                                }else{
+                                    //assembly charts data(history data rssi,rxbytes,txbytes)
+                                    RuckusWifiAssembly.assemblyWlanTwelveHoursSummaryHisData();
+                                }
+                            }
+                            if(combarStatus == undefined || combarStatus == "" || combarStatus == "total"){
+                                // Assembly wifi left panel(show per wlan)
+                                RuckusWifiDashboard.setPerWlanInfo(totalTempAry);
+                            }
+                            else if(combarStatus == "normal"){
+                                RuckusWifiDashboard.setPerWlanInfo(normalTempAry);
+                            }
+                            else if(combarStatus == "disabled"){
+                                RuckusWifiDashboard.setPerWlanInfo(disabledTempAry);
+                            }
+                            //assembly left summary charts
+                            RuckusWifiAssembly.setWlanSummaryLeftChart();
+                            RuckusWifiAssembly.assemblySumTrafficChart();
+                            // set active wlan right charts 12 hours
+                            //set summary right charts
+                            RuckusWifiAssembly.setActiveWlanChart(wlanId);
+                            //set client num
+                            RuckusWifiDashboard.wifiClientShow(wlanId);
+                            jQuery("#hideCheckedWlan").val(wlanName);
+                            // first item default selected
+                            RuckusWifiDashboard.wlanActive(jQuery("#wifiLeftItem1"));
+                        }else{
+                            console.log('RuckusWifiAssembly.compareWlanList is error');
+                            return;
+                        }
+                        //get wlan config data
+                        RuckusWifiAjax.getWifiList(RuckusWifiAssembly.assemblyWifiConfigData);
+                    }
+                }
+            }
+        }
+    },
+
+    // wlan config data
+    assemblyWifiConfigData : function(wifiList){
+        if(wifiList!=null){
+            // 2.set wifi list into localStore
+            //bloCliList，cliNumBlo，cliNumConn，clientsList
+            var bloCliList=localStorage.getItem("bloCliList");
+            var cliNumBlo=localStorage.getItem("cliNumBlo");
+            var cliNumConn=localStorage.getItem("cliNumConn");
+            var clientsList=localStorage.getItem("clientsList");
+            var latestWlanId=localStorage.getItem("latestWlanId");
+            localStorage.clear();//clear localStorage
+            if(localStorage.getItem("bloCliList")==null ||
+                localStorage.getItem("cliNumBlo")== null ||
+                localStorage.getItem("cliNumConn") == null ||
+                localStorage.getItem("clientsList") == null){
+                localStorage.setItem("bloCliList",bloCliList);
+                localStorage.setItem("cliNumBlo",cliNumBlo);
+                localStorage.setItem("cliNumConn",cliNumConn);
+                localStorage.setItem("clientsList",clientsList);
+                localStorage.setItem("latestWlanId",latestWlanId);
+            }
+            RuckusWifiAssembly.setWifiDataInfo(wifiList,"none");
+        }
+    },
+
+    //ten minutes history data
+    assemblyWifiTenMinSumHistoryData:function(rssi,rxBytes,txBytes,wlanId){
+        var txBytesArray=[], rxBytesArray=[] , rssiArray=[];
+        var clientStateA=[0,0,0,0,0,0,0,0,0,0],clientStateB=[0,0,0,0,0,0,0,0,0,0],clientStateC=[0,0,0,0,0,0,0,0,0,0];
+        var rxBytesLastTenDataArr=[0,0,0,0,0,0,0,0,0,0],txBytesLastTenDataArr=[0,0,0,0,0,0,0,0,0,0],totalBytesLastTenDataArr=[0,0,0,0,0,0,0,0,0,0];
+        var timeArrWlan=["","","","","","","","","",""];
+        var k=10,z=10,x=10,y=10,w=10,d=10;
+        var wlanHistoryCount = RuckusWifiAssembly.getChartNum(rssi);
+        if(wlanHistoryCount>wlanTenMinutesCount){
+            wlanTenMinutesCount = wlanHistoryCount;
+            wlanMaxTenMHistoryCountId = wlanId;
+        }
+        //client status
+        rssiArray = rssi.split(",");
+        for(var i=0; i<rssiArray.length; i++){
+            if(i%4 == 0){
+                var timeStamp =  rssiArray[i];
+                if(timeStamp != ""){
+                    var timeDate = new Date(parseInt(timeStamp) * 1000);
+                    var hours = timeDate.getHours();
+                    var minutes = timeDate.getMinutes();
+                    if(hours<10){
+                        hours="0"+hours
+                    }
+                    if(minutes<10){
+                        minutes="0"+minutes
+                    }
+                    d--;
+                    timeArrWlan[d] = hours+":"+minutes;
+                }
+            }
+            if(i%4 == 1){
+                k--;
+                clientStateA[k]=rssiArray[i];
+            }
+            if(i%4 == 2){
+                z--;
+                clientStateB[z]=rssiArray[i];
+            }
+            if(i%4 == 3){
+                x--;
+                clientStateC[x]=rssiArray[i];
+            }
+        }
+        //wlan traffic rx-bytes
+        rxBytesArray = rxBytes.split(",");
+        for(var i=0; i<rxBytesArray.length; i++){
+            if(i%2 == 1){
+                y--;
+                if(rxBytesArray[i] !=undefined && parseFloat(rxBytesArray[i])!=NaN){
+                    rxBytesLastTenDataArr[y]=RuckusWifiDashboard.RenderBytesToM(rxBytesArray[i]);
+                }
+            }
+        }
+        //wlan traffic tx-bytes
+        txBytesArray = txBytes.split(",");
+        for(var i=0; i<txBytesArray.length; i++){
+            if(i%2 == 1){
+                w--;
+                if(txBytesArray[i] !=undefined && parseFloat(txBytesArray[i])!=NaN){
+                    txBytesLastTenDataArr[w]=RuckusWifiDashboard.RenderBytesToM(txBytesArray[i]);
+                }
+            }
+        }
+        for(var i=0;i<txBytesLastTenDataArr.length;i++){
+            var temp=RuckusWifiDashboard.changeTwoDecimal_f(parseFloat(rxBytesLastTenDataArr[i])+parseFloat(txBytesLastTenDataArr[i])+ "");//.substring(0,4);
+            totalBytesLastTenDataArr[i]=temp;
+        }
+        var wlanInfoData={wlanId :wlanId,txBytesArr:txBytesLastTenDataArr,rxBytesArr:rxBytesLastTenDataArr,totalBytesArr:totalBytesLastTenDataArr,
+            clientStateA:clientStateA,clientStateB:clientStateB,clientStateC:clientStateC,timeArray:timeArrWlan};
+        wlanTenMinInfoAarry.push(wlanInfoData);
+    },
+
+    //assembly wifi 12 hours history data
+    assemblyWifiTwelveHouHistoryData:function(rssi,rxBytes,txBytes,wlanId){
+        var txBytesArray=[], rxBytesArray=[] , rssiArray=[];
+        var clientStateA=[0,0,0,0,0,0,0,0,0,0,0,0],clientStateB=[0,0,0,0,0,0,0,0,0,0,0,0],clientStateC=[0,0,0,0,0,0,0,0,0,0,0,0];
+        var rxBytesLastTenDataArr=[0,0,0,0,0,0,0,0,0,0,0,0],txBytesLastTenDataArr=[0,0,0,0,0,0,0,0,0,0,0,0],totalBytesLastTenDataArr=[0,0,0,0,0,0,0,0,0,0,0,0];
+        var timeArrWlan=["","","","","","","","","","","",""];
+        var k=12,z=12,x=12,y=12,w=12,d=12;
+        var wlanHistoryCount = RuckusWifiAssembly.getChartNum(rssi);
+        if(wlanHistoryCount>wlanTweleveHoursCount){
+            wlanTweleveHoursCount = wlanHistoryCount;
+            wlanMaxTweHsHistoryCountId = wlanId;
+        }
+        //client status
+        var rssiArray = rssi.split(",");
+        for(var i=0; i<rssiArray.length; i++){
+            if(i%4 == 0){
+                var wlanTimeStamp =  rssiArray[i];
+                if(wlanTimeStamp != ""){
+                    var timeDate = new Date(parseInt(wlanTimeStamp) * 1000);
+                    var hours = timeDate.getHours();
+                    var minutes = timeDate.getMinutes();
+                    if(hours<10){
+                        hours="0"+hours
+                    }
+                    if(minutes<10){
+                        minutes="0"+minutes
+                    }
+                    d--;
+                    timeArrWlan[d] = hours+":"+minutes;
+                }
+            }
+            if(i%4 == 1){
+                k--;
+                clientStateA[k]=rssiArray[i];
+            }
+            if(i%4 == 2){
+                z--;
+                clientStateB[z]=rssiArray[i];
+            }
+            if(i%4 == 3){
+                x--;
+                clientStateC[x]=rssiArray[i];
+            }
+        }
+        //wlan traffic rx-bytes
+        rxBytesArray = rxBytes.split(",");
+        for(var i=0; i<rxBytesArray.length; i++){
+            if(i%2 == 1){
+                y--;
+                if(rxBytesArray[i] !=undefined && parseFloat(rxBytesArray[i])!=NaN){
+                    rxBytesLastTenDataArr[y]=RuckusWifiDashboard.RenderBytesToM(rxBytesArray[i]);
+                }
+            }
+        }
+        //wlan traffic tx-bytes
+        txBytesArray = txBytes.split(",");
+        for(var i=0; i<txBytesArray.length; i++){
+            if(i%2 == 1){
+                w--;
+                if(txBytesArray[i] !=undefined && parseFloat(txBytesArray[i])!=NaN){
+                    txBytesLastTenDataArr[w]=RuckusWifiDashboard.RenderBytesToM(txBytesArray[i]);
+                }
+            }
+        }
+        for(var i=0;i<txBytesLastTenDataArr.length;i++){
+            var temp=RuckusWifiDashboard.changeTwoDecimal_f(parseFloat(rxBytesLastTenDataArr[i])+parseFloat(txBytesLastTenDataArr[i]) + "");//.substring(0,4);
+            totalBytesLastTenDataArr[i]=RuckusWifiDashboard.changeTwoDecimal_f(temp);
+        }
+        var wlanInfoData={wlanId :wlanId,txBytesArr:txBytesLastTenDataArr,rxBytesArr:rxBytesLastTenDataArr,totalBytesArr:totalBytesLastTenDataArr,
+            clientStateA:clientStateA,clientStateB:clientStateB,clientStateC:clientStateC,timeArray:timeArrWlan};
+        wlanTweleveHouInfoArray.push(wlanInfoData);
+    },
+
+    getChartNum : function(ss){
+        var r, re;
+        var strlength = ss.length;
+        re = /\,/;
+        while(re.test(ss)){
+            ss = ss.replace(re, "");
+        }
+        return (strlength-ss.length);
+    },
+
+    // assembly client and traffic summary history data
+    assemblyWlanTwelveHoursSummaryHisData :function(){
+        if(wlanTweleveHouInfoArray !=undefined && wlanTweleveHouInfoArray.length !=0 ){
+            var totalClient;var clientIsNull=true,trafficIsNull=true;
+            summaryTwelveHouClientState ={} ,summaryTwelveHouTraffic ={};
+            var clientStateSumAArry=new Array(0, 0, 0, 0, 0, 0, 0, 0, 0,0,0,0),
+                clientStateSumBArry=new Array(0, 0, 0, 0, 0, 0, 0, 0, 0,0,0,0),
+                clientStateSumCArry=new Array(0, 0, 0, 0, 0, 0, 0, 0, 0,0,0,0),
+                totalClientsSumArry=[0, 0, 0, 0, 0, 0, 0, 0, 0,0,0,0];
+            var txBytesSumArry = new Array(0, 0, 0, 0, 0, 0, 0, 0, 0,0,0,0),
+                rxBytesSumArry = new Array(0, 0, 0, 0, 0, 0, 0, 0, 0,0,0,0);
+            totalBytesTweHouSumArry=[0, 0, 0, 0, 0, 0, 0, 0, 0,0,0,0];
+            for(var i = 0; i < wlanTweleveHouInfoArray.length; i++) {
+                /*clientStateSumAArry.forEach(function(v, i) {
+                 clientStateSumAArry.push(v +  perWlanClientState[i].clientStateA[i])
+                 })*/
+                for (var j = 0; j < wlanTweleveHouInfoArray[i].clientStateA.length; j++) {
+                    var csA1 = wlanTweleveHouInfoArray[i].clientStateA[j];
+                    var csB1 = wlanTweleveHouInfoArray[i].clientStateB[j];
+                    var csC1 = wlanTweleveHouInfoArray[i].clientStateC[j];
+                    var csAInt=parseInt(csA1),csBInt=parseInt(csB1),csCInt=parseInt(csC1);
+                    clientStateSumAArry[j] = parseInt(clientStateSumAArry[j]) + csAInt;
+                    clientStateSumBArry[j] = parseInt(clientStateSumBArry[j]) + csBInt;
+                    clientStateSumCArry[j] = parseInt(clientStateSumCArry[j]) + csCInt;
+                    var clicentToal=csAInt+csBInt+csCInt;
+                    if(csAInt !=NaN && csBInt !=NaN && csCInt!=NaN){
+                        totalClientsSumArry [j] =parseInt(totalClientsSumArry[j])+ clicentToal;
+                    }
+                    if(clicentToal !=0){
+                        clientIsNull=false;
+                    }
+                    var rxbyts1 = wlanTweleveHouInfoArray[i].rxBytesArr[j];
+                    var txbyts1 = wlanTweleveHouInfoArray[i].txBytesArr[j];
+                    if( parseFloat(rxbyts1)!=NaN && parseFloat(txbyts1)!=NaN){
+                        var rx=parseFloat(rxbyts1);
+                        var tx=parseFloat(txbyts1);
+                        rxBytesSumArry[j] =RuckusWifiDashboard.changeTwoDecimal_f( parseFloat(rxBytesSumArry[j]) + rx);
+                        txBytesSumArry[j] =RuckusWifiDashboard.changeTwoDecimal_f( parseFloat(txBytesSumArry[j]) + tx);
+                        //console.log(rx+"**"+tx);
+                        var total =rx + tx;
+                        //console.log(total);
+                        //var totalTemp=(parseFloat(totalBytesTweHouSumArry[j]) + total +"").substring(0,4);
+                        var totalTemp=RuckusWifiDashboard.changeTwoDecimal_f(parseFloat(totalBytesTweHouSumArry[j]) + total +"");
+                        totalBytesTweHouSumArry[j] = totalTemp;
+                        if(total !=0){
+                            trafficIsNull=false;
+                        }
+                    }
+                }
+                if(wlanMaxTweHsHistoryCountId == wlanTweleveHouInfoArray[i].wlanId){
+                    sumTwelveHourTimeArray = wlanTweleveHouInfoArray[i].timeArray;
+                }
+            }
+            summaryTwelveHouClientState={clientStateA:clientStateSumAArry,clientStateB:clientStateSumBArry,clientStateC:clientStateSumCArry,
+                totalClients:totalClientsSumArry,timeArry:sumTwelveHourTimeArray,clientIsNull:clientIsNull}
+            //summary last 12 hours data
+            summaryTwelveHouTraffic = {rxBytes: rxBytesSumArry, txBytes: txBytesSumArry, totalBytes: totalBytesTweHouSumArry, timeArry: sumTwelveHourTimeArray,trafficIsNull:trafficIsNull}
+        } else{
+            console.log("perWlanClientState has no data in assemblyTwelveWlanSummaryCharts");
+        }
+    },
+
+    // init combar client status chart and traffic chart
+    assemblyWlanTenMinSummaryHisData :function(){
+        if(wlanTenMinInfoAarry !=undefined && wlanTenMinInfoAarry.length !=0 ){
+            var totalClient;var clientIsNull=true,trafficIsNull=true;
+            summaryClientState ={} ,summaryTraffic ={};
+            var clientStateSumAArry=new Array(0, 0, 0, 0, 0, 0, 0, 0, 0,0),
+                clientStateSumBArry=new Array(0, 0, 0, 0, 0, 0, 0, 0, 0,0),
+                clientStateSumCArry=new Array(0, 0, 0, 0, 0, 0, 0, 0, 0,0),
+                totalClientsSumArry=[0, 0, 0, 0, 0, 0, 0, 0, 0,0];
+            var txBytesSumArry = new Array(0, 0, 0, 0, 0, 0, 0, 0, 0,0),
+                rxBytesSumArry = new Array(0, 0, 0, 0, 0, 0, 0, 0, 0,0);
+            totalBytesTenMinSumArry=[0, 0, 0, 0, 0, 0, 0, 0, 0,0];
+            for(var i = 0; i < wlanTenMinInfoAarry.length; i++) {
+                for (var j = 0; j < wlanTenMinInfoAarry[i].clientStateA.length; j++) {
+                    var csA1 = wlanTenMinInfoAarry[i].clientStateA[j];
+                    var csB1 = wlanTenMinInfoAarry[i].clientStateB[j];
+                    var csC1 = wlanTenMinInfoAarry[i].clientStateC[j];
+                    var csAInt=parseInt(csA1),csBInt=parseInt(csB1),csCInt=parseInt(csC1);
+                    clientStateSumAArry[j] = parseInt(clientStateSumAArry[j]) + csAInt;
+                    clientStateSumBArry[j] = parseInt(clientStateSumBArry[j]) + csBInt;
+                    clientStateSumCArry[j] = parseInt(clientStateSumCArry[j]) + csCInt;
+                    var clicentToal=csAInt+csBInt+csCInt;
+                    if(csAInt !=NaN && csBInt !=NaN && csCInt!=NaN){
+                        totalClientsSumArry [j] =parseInt(totalClientsSumArry[j])+ clicentToal;
+                    }
+                    if(clicentToal !=0){
+                        clientIsNull=false;
+                    }
+                    var rxbyts1 = wlanTenMinInfoAarry[i].rxBytesArr[j];
+                    var txbyts1 = wlanTenMinInfoAarry[i].txBytesArr[j];
+                    if( parseFloat(rxbyts1)!=NaN && parseFloat(txbyts1)!=NaN){
+                        var rx=parseFloat(rxbyts1);
+                        var tx=parseFloat(txbyts1);
+                        rxBytesSumArry[j] =RuckusWifiDashboard.changeTwoDecimal_f( parseFloat(rxBytesSumArry[j]) + rx);
+                        txBytesSumArry[j] =RuckusWifiDashboard.changeTwoDecimal_f( parseFloat(txBytesSumArry[j]) + tx);
+                        var total =rx + tx;
+                        var totalTemp=RuckusWifiDashboard.changeTwoDecimal_f((parseFloat(totalBytesTenMinSumArry[j]) + total +""));//.substring(0,4));
+                        totalBytesTenMinSumArry[j] = totalTemp;
+                        if(total !=0){
+                            trafficIsNull=false;
+                        }
+                    }
+                }
+                if(wlanMaxTenMHistoryCountId == wlanTenMinInfoAarry[i].wlanId){
+                    sumTenMinTimeArray = wlanTenMinInfoAarry[i].timeArray;
+                }
+            }
+            summaryClientState={clientStateA:clientStateSumAArry,clientStateB:clientStateSumBArry,clientStateC:clientStateSumCArry,
+                totalClients:totalClientsSumArry,timeArry:sumTenMinTimeArray,clientIsNull:clientIsNull}
+            //summary last ten minutes data
+            summaryTraffic = {rxBytes: rxBytesSumArry, txBytes: txBytesSumArry, totalBytes: totalBytesTenMinSumArry, timeArry: sumTenMinTimeArray,trafficIsNull:trafficIsNull}
+        } else{
+            console.log("perWlanClientState has no data in assemblyWlanTenMinSummaryCharts");
+        }
+    },
+
+    setWlanSummaryLeftChart:function(){
+        //assembly left summary charts
+        RuckusWifiAssembly.assemblyPerWlanCharts();
+      //  RuckusWifiAssembly.assemblySumTrafficChart();
+        RuckusWifiAssembly.assemblySumClientsChart();
+    },
+    setWlanSummaryDataInfo : function(){
+        isSummary=true; commWifiId="";wifiId="";
+        //default selected summary
+        RuckusWifiDashboard.wlanActive();
+        //Assembly left panel echars
+        RuckusWifiAssembly.assemblyPerWlanCharts();
+        //assembly left summary charts
+        RuckusWifiAssembly.assemblySumClientsChart();
+        //set right wifi clients status chart and  traffic chart
+        RuckusWifiDashboard.setWlanSummaryClientRightChar(summaryTwelveHouClientState);
+        RuckusWifiDashboard.setWlanSummaryTrafficRightChar(summaryTwelveHouTraffic);
+    },
+    setCombarTotalTips:function(){
+        if(!summaryClientState.clientIsNull){
+            if(jQuery("#combarCTotalTips").length ==0){
+                for (var i = summaryClientState.totalClients.length - 1; i >= 0; i--) {
+                    if (summaryClientState.timeArry[i] != "") {
+                        if (i % 2 === 1) {
+                            if (i == summaryClientState.totalClients.length - 1) {
+                                var tempTotalClient=summaryClientState.totalClients[i];
+                                jQuery('#combarClientState').after("<span class='cvs_text fz_12' id='combarCTotalTips'><b class='bold'>Client: " + tempTotalClient + "</b></span>");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }else{
+                var tempTotalClient;
+                for (var i = summaryClientState.totalClients.length - 1; i >= 0; i--) {
+                    if (summaryClientState.timeArry[i] != "") {
+                        if (i % 2 === 1) {
+                            if (i == summaryClientState.totalClients.length - 1) {
+                                tempTotalClient=summaryClientState.totalClients[i];
+                                break;
+                            }
+                        }
+                    }
+                }
+                jQuery("#combarCTotalTips").find('b').html("Client: "+tempTotalClient);
+            }
+        }
+        if(!summaryTraffic.trafficIsNull){
+            if(jQuery("#combarTrafficTotalTips").length == 0){
+                for (var i = summaryTraffic.totalBytes.length - 1; i >= 0; i--) {
+                    if (summaryTraffic.timeArry[i] != "") {
+                        if (i % 2 === 1) {
+                            if (i == summaryTraffic.totalBytes.length - 1) {
+                                var tempTotalTraffic = RuckusWifiDashboard.RenderMBToG(summaryTraffic.totalBytes[i]);
+                                jQuery('#combarTraffic').after("<span class='cvs_text fz_12' id='combarTrafficTotalTips'><b class='bold'>Traffic: " + tempTotalTraffic + "</b></span>");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }else{
+                var tempTotalTraffic;
+                for (var i = summaryTraffic.totalBytes.length - 1; i >= 0; i--) {
+                    if (summaryTraffic.timeArry[i] != "") {
+                        if (i % 2 === 1) {
+                            if (i == summaryTraffic.totalBytes.length - 1) {
+                                tempTotalTraffic = RuckusWifiDashboard.RenderMBToG(summaryTraffic.totalBytes[i]);
+                                break;
+                            }
+                        }
+                    }
+                }
+                jQuery("#combarTrafficTotalTips").find('b').html("Traffic: "+tempTotalTraffic);
+            }
+        }
+    },
+
+    assemblyCombarChart:function(){
+        if(!summaryClientState.clientIsNull){
+            jQuery('#combarClientState').removeClass('sNoData');
+            RuckusWifiDashboard.setWlanSummaryClientCombarChars(summaryClientState);
+        }else{
+            jQuery('#combarClientState').addClass('sNoData').html('No Data');
+        }
+        if(!summaryTraffic.trafficIsNull){
+            jQuery('#combarTraffic').removeClass('sNoData');//
+            RuckusWifiDashboard.setWlanSummaryTrafficCombarChars(summaryTraffic);
+           // if(jQuery("#summaryWlanTraffic").children().length==0){
+                RuckusWifiDashboard.setWlanSummaryChars(summaryTraffic);
+            //}
+        }else{
+            jQuery('#combarTraffic').addClass('sNoData').html('No Data');
+        }
+    },
+
+    assemblySumClientsChart :function(){
+        //  left summary charts
+        if(summaryClientState!=undefined){
+            var clientStateSumAArry=summaryClientState.clientStateA;
+            var clientStateSumBArry=summaryClientState.clientStateB;
+            var clientStateSumCArry=summaryClientState.clientStateC;
+            //set left wifi summary clients status chart and  traffic chart charts
+            var excellent = parseInt(clientStateSumAArry[clientStateSumAArry.length - 1]);
+            var moderate = parseInt(clientStateSumBArry[clientStateSumBArry.length - 1]);
+            var poor = parseInt(clientStateSumCArry[clientStateSumCArry.length - 1]);
+            //set clients charts
+            RuckusWifiAssembly.assemblyClientsLeftBar(poor,moderate,excellent,"Summary");
+        }
+    },
+
+    assemblySumTrafficChart :function(){
+        //set traffic charts
+        RuckusWifiDashboard.setWlanSummaryChars(summaryTraffic);//
+    },
+
+    removeLeftClientChartCss :function(){
+        // remove left RSSI class
+        jQuery("#wifiCapacityRateSummary div").removeClass('red_bg');
+        jQuery("div[id^='capacity'] div").removeClass('red_bg');
+        jQuery("#wifiCapacityRateSummary div").removeClass('orange_bg');
+        jQuery("div[id^='capacity'] div").removeClass('orange_bg');
+        jQuery("#wifiCapacityRateSummary div").removeClass('green_bg');
+        jQuery("div[id^='capacity'] div").removeClass('green_bg');
+        jQuery("#wifiCapacityRateSummary div").removeAttr("style");
+        jQuery("div[id^='capacity'] div").removeAttr("style");
+        jQuery("#wifiCapacityRateSummary").find("s").remove();
+        jQuery("div[id^='capacity']").find("s").remove();
+    },
+
+    assemblyClientsLeftBar :function(poor,moderate,excellent,currentDiv){
+        var rssiArr = [];
+        rssiArr.push(poor);
+        rssiArr.push(moderate);
+        rssiArr.push(excellent);
+        var maxInNumbers = Math.max.apply(Math, rssiArr);
+        var percent1 = 0, percent2 = 0
+        if(maxInNumbers != 0){
+            percent1 = (maxInNumbers/15).toFixed(2);
+            percent2 = (maxInNumbers/55).toFixed(2);
+        }
+        for(var i=1; i<=rssiArr.length; i++){
+            var rssiValue = rssiArr[i-1];
+            var bgColor;
+            if(i == 1){
+                bgColor = 'red_bg';
+            }else if(i == 2){
+                bgColor = 'orange_bg';
+            }else{
+                bgColor = 'green_bg';
+            }
+            if(currentDiv != undefined){
+                if(currentDiv.indexOf('Summary') > -1 ){//summary
+                    if(rssiValue == 0){
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).html("");
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).html("<s></s>");
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).find('s').html(rssiValue);
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).find('s').css('bottom','2px');
+                    }
+                    if(0 < rssiValue && rssiValue <10){
+                        // outside
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).html("");
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).html("<s></s>");
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).find('s').html(rssiValue);
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).find('s').css('bottom',(rssiValue/percent1)+'px');
+
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).addClass(bgColor);
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).css('height',rssiValue/percent1+'px').css('line-height',rssiValue/percent1+'px');
+                    }
+                    if(rssiValue >= 10){
+                        // inside (red_bg no-content)
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).find('s').remove();
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).html(rssiValue);
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).addClass(bgColor);
+                        jQuery("#wifiCapacityRateSummary").find("div").eq(i).css('height',rssiValue/percent2+'px').css('line-height',rssiValue/percent2+'px');
+                    }
+                }else{
+                    var currentDivId;
+                    var currentDivIdStr=jQuery('#wlanId'+currentDiv).parent().attr('id');
+                    if(currentDivIdStr !=undefined){
+                        currentDivId=currentDivIdStr.substring(13);
+                    }
+                    if(rssiValue == 0){
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).html(" ");
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).html("<s></s>");
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).find('s').html(rssiValue);
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).find('s').css('bottom','2px');
+                    }
+                    if(0 < rssiValue && rssiValue <10){
+                        // outside
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).html(" ");
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).html("<s></s>");
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).find('s').html(rssiValue);
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).find('s').css('bottom',(rssiValue/percent1)+'px');
+
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).addClass(bgColor);
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).css('height',rssiValue/percent1+'px').css('line-height',rssiValue/percent1+'px');
+                    }
+                    if(rssiValue >= 10){
+                        // inside (red_bg no-content)
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).find('s').remove();
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).html(rssiValue);
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).addClass(bgColor);
+                        jQuery("#capacity" +currentDivId).find("div").eq(i).css('height',rssiValue/percent2+'px').css('line-height',rssiValue/percent2+'px');
+                    }
+                }
+            }
+        }
+    },
+
+    //click combar show wifi left charts and right charts
+    assemblyPerWlanCharts :function(){
+        RuckusWifiAssembly.removeLeftClientChartCss();
+        if(wlanTenMinInfoAarry !=undefined && wlanTenMinInfoAarry.length !=0){
+            var wlanId,currentDivIdStr,currentDivId;
+            // every per wlan left charts
+            for(var i=0;i<wlanTenMinInfoAarry.length;i++){
+                //set left per wlan client status charts
+                wlanId=wlanTenMinInfoAarry[i].wlanId;
+                currentDivIdStr=jQuery('#wlanId'+wlanId).parent().attr('id');
+                if(currentDivIdStr != undefined){
+                    currentDivId=currentDivIdStr.substring(13);
+                    var clientAlength=wlanTenMinInfoAarry[i].clientStateA.length;
+                    var perWlanCSA= 0,perWlanCSB= 0,perWlanCSC= 0,sumWlanClients=0;
+                    if(clientAlength > 0){
+                        perWlanCSA=parseInt(wlanTenMinInfoAarry[i].clientStateA[clientAlength-1]);
+                        perWlanCSB=parseInt(wlanTenMinInfoAarry[i].clientStateB[clientAlength-1]);
+                        perWlanCSC=parseInt(wlanTenMinInfoAarry[i].clientStateC[clientAlength-1]);
+                    }
+                    var trafficRxlength=wlanTenMinInfoAarry[i].rxBytesArr.length;
+                    var perWlanRxBytes=parseFloat(wlanTenMinInfoAarry[i].rxBytesArr[trafficRxlength-1]);
+                    var perWlanTxBytes=parseFloat(wlanTenMinInfoAarry[i].txBytesArr[trafficRxlength-1]);
+                    var summaryTotalBytes=totalBytesTenMinSumArry[trafficRxlength-1];
+                    var temp=RuckusWifiDashboard.changeTwoDecimal_f(perWlanRxBytes+perWlanTxBytes +"");
+                    var perWlanTotalBytes=parseFloat(temp);
+                    var percentageTraffic = 0.00;
+                    if(summaryTotalBytes != 0 ){
+                        percentageTraffic=RuckusWifiDashboard.changeTwoDecimal_f(perWlanTotalBytes/summaryTotalBytes*100);
+                    }
+                    //ZF-13986 if more than 100% is equals 100%
+                    if(percentageTraffic >100){
+                        percentageTraffic = 100;
+                    }
+                    // left panel client chart
+                    RuckusWifiAssembly.assemblyClientsLeftBar(perWlanCSC,perWlanCSB,perWlanCSA,wlanId);
+                    //set left wifi panel traffic chart
+                    RuckusWifiDashboard.setWifiTraffic(currentDivId,percentageTraffic);
+                }
+            }
+        }else{
+            console.log("perWlanClientState has no data in assemblyPerWlanCharts");
+        }
+    },
+
+    //set active wlan chart
+    setActiveWlanChart :function(wifiId){
+        var period;
+        if(RuckusWifiDashboard.getCookie('wlanTimePeriod')!=null && RuckusWifiDashboard.getCookie('wlanTimePeriod') !=""){
+            period = RuckusWifiDashboard.getCookie('wlanTimePeriod');
+        }
+        if(period !=undefined){
+            if(period == 1){
+                if(wlanTenMinInfoAarry !=undefined && wlanTenMinInfoAarry.length !=0){
+                    var currentDivIdStr,currentDivId;
+                    if(wifiId != undefined && wifiId !=""){
+                        for(var i=0;i<wlanTenMinInfoAarry.length;i++){
+                            if(wifiId == wlanTenMinInfoAarry[i].wlanId ){
+                                var curLength=wlanTenMinInfoAarry[i].clientStateA.length;
+                                //wlan client status data
+                                currentDivIdStr=jQuery('#wlanId'+wifiId).parent().attr('id');
+                                if(currentDivIdStr!=undefined){
+                                    currentDivId=currentDivIdStr.substring(13);
+                                }
+                                var currentcSA=parseInt(wlanTenMinInfoAarry[i].clientStateA[curLength-1]);
+                                var currentcSB=parseInt(wlanTenMinInfoAarry[i].clientStateB[curLength-1]);
+                                var currentcSC=parseInt(wlanTenMinInfoAarry[i].clientStateC[curLength-1]);
+                                //wlan traffic data
+                                var curtrafficlength=wlanTenMinInfoAarry[i].rxBytesArr.length;
+                                var curWlanRxBytes=wlanTenMinInfoAarry[i].rxBytesArr[curtrafficlength-1];
+                                var curWlanTxBytes=wlanTenMinInfoAarry[i].txBytesArr[curtrafficlength-1];
+                                var curSumWlanTottalBytes=totalBytesTenMinSumArry[curtrafficlength-1];
+                                var curTotalBytes=RuckusWifiDashboard.changeTwoDecimal_f(parseFloat(curWlanRxBytes)+parseFloat(curWlanTxBytes) +"");//.substring(0,4);
+                                var curPercentageTraffic=RuckusWifiDashboard.changeTwoDecimal_f(0);
+                                if(curSumWlanTottalBytes != 0){
+                                    curPercentageTraffic=RuckusWifiDashboard.changeTwoDecimal_f(parseFloat(curTotalBytes)/curSumWlanTottalBytes*100);
+                                }
+                                //ZF-13986 if more than 100% is equals 100%
+                                if(curPercentageTraffic > 100){
+                                    curPercentageTraffic = 100;
+                                }
+                                //set per wlan left charts
+                                RuckusWifiAssembly.assemblyClientsLeftBar(currentcSC,currentcSB,currentcSA,wifiId);
+                                RuckusWifiDashboard.setWifiTraffic(currentDivId,curPercentageTraffic);
+                            }
+                        }
+                        for(var i=0;i<wlanTenMinInfoAarry.length;i++){
+                            // time
+                            if(wlanTenMinInfoAarry[i].timeArray[i] == ""){
+                                wlanTenMinInfoAarry[i].timeArray = sumTenMinTimeArray;
+                            }
+                            if(wifiId == wlanTenMinInfoAarry[i].wlanId){
+                                //show per wlan right charts
+                                RuckusWifiDashboard.setWlanClientStateRightChar(wlanTenMinInfoAarry[i]);
+                                RuckusWifiDashboard.setWlanTrafficRightChar(wlanTenMinInfoAarry[i]);
+                            }
+                        }
+                    }
+                }else{
+                    console.log("perWlanClientState has no data in assemblyPerWlanCharts");
+                }
+            }else{
+                if(wlanTweleveHouInfoArray !=undefined && wlanTweleveHouInfoArray.length !=0){
+                    var currentDivIdStr,currentDivId;
+                    if(wifiId != undefined && wifiId !=""){
+                        //left chart is ten minutes data
+                        for(var i=0;i<wlanTenMinInfoAarry.length;i++){
+                            if(wifiId == wlanTenMinInfoAarry[i].wlanId ){
+                                var curLength=wlanTenMinInfoAarry[i].clientStateA.length;
+                                //wlan client status data
+                                currentDivIdStr=jQuery('#wlanId'+wifiId).parent().attr('id');
+                                if(currentDivIdStr!=undefined){
+                                    currentDivId=currentDivIdStr.substring(13);
+                                }
+                                var currentcSA=parseInt(wlanTenMinInfoAarry[i].clientStateA[curLength-1]);
+                                var currentcSB=parseInt(wlanTenMinInfoAarry[i].clientStateB[curLength-1]);
+                                var currentcSC=parseInt(wlanTenMinInfoAarry[i].clientStateC[curLength-1]);
+                                //wlan traffic data
+                                var curtrafficlength=wlanTenMinInfoAarry[i].rxBytesArr.length;
+                                var curWlanRxBytes=wlanTenMinInfoAarry[i].rxBytesArr[curtrafficlength-1];
+                                var curWlanTxBytes=wlanTenMinInfoAarry[i].txBytesArr[curtrafficlength-1];
+                                var curSumWlanTottalBytes=totalBytesTenMinSumArry[curtrafficlength-1];
+                                var curTotalBytes=RuckusWifiDashboard.changeTwoDecimal_f(parseFloat(curWlanRxBytes)+parseFloat(curWlanTxBytes) +"");//.substring(0,4);
+                                var curPercentageTraffic=RuckusWifiDashboard.changeTwoDecimal_f(0);
+                                if(curSumWlanTottalBytes != 0){
+                                    curPercentageTraffic=RuckusWifiDashboard.changeTwoDecimal_f(parseFloat(curTotalBytes)/curSumWlanTottalBytes*100);
+                                }
+                                //ZF-13986 if more than 100% is equals 100%
+                                if(curPercentageTraffic > 100){
+                                    curPercentageTraffic = 100;
+                                }
+                                //set per wlan left charts
+                                RuckusWifiAssembly.assemblyClientsLeftBar(currentcSC,currentcSB,currentcSA,wifiId);
+                                RuckusWifiDashboard.setWifiTraffic(currentDivId,curPercentageTraffic);
+                            }
+                        }
+                        //right charts is 12/1 hours data
+                        for(var i=0;i<wlanTweleveHouInfoArray.length;i++){
+                            // time
+                            if(wlanTweleveHouInfoArray[i].timeArray[i] == ""){
+                                wlanTweleveHouInfoArray[i].timeArray = sumTwelveHourTimeArray;
+                            }
+                            if(wifiId == wlanTweleveHouInfoArray[i].wlanId){
+                                //show per wlan right charts
+                                RuckusWifiDashboard.setWlanClientStateRightChar(wlanTweleveHouInfoArray[i]);
+                                RuckusWifiDashboard.setWlanTrafficRightChar(wlanTweleveHouInfoArray[i]);
+                            }
+                        }
+                    }
+                }else{
+                    console.log("perWlanClientState has no data in assemblyPerWlanCharts");
+                }
+            }
+          /*  //Assembly left panel echars
+            RuckusWifiAssembly.assemblyPerWlanCharts();
+            //assembly left summary charts
+            RuckusWifiAssembly.assemblySumClientsChart();*/
+        }
+    },
+
+    //set combar num
+    setWifiCombarNum:function(total,normal,disabled){
+        // 1.set combar button num
+        jQuery("#wifiCombar div[class='status1']").html("Total"+"<b>"+ total);
+        jQuery("#wifiCombar div[class='status2']").html("Normal"+"<b>"+ normal);
+        if(disabled == 0){
+            jQuery("#wifiCombar div[class='status3'] span[class='status_num']").addClass("num_zero");
+            jQuery("#wifiCombar div[class='status3'] span[class='status_num num_zero']").html(disabled);
+        }else{
+            jQuery("#wifiCombar div[class='status3'] span[class='status_num num_zero']").removeClass("num_zero");
+            jQuery("#wifiCombar div[class='status3'] span[class='status_num']").html(disabled);
+        }
+
+    },
+
+    // put new wlan to first item
+    compareWlanList: function (arr1,arr2){
+        var tempArray = new Array();
+        for(var i=0; i < arr1.length; i++){
+            var flag = true;
+            for(var j=0; j < arr2.length; j++){
+                if(arr1[i].wlanId == arr2[j].wlanId)
+                    flag = false;
+            }
+            if(flag)
+                tempArray.push(arr1[i]);
+        }
+        return tempArray;
+    },
+
+    // when wlan count is more then 5 create next div
+    createMoreThen5Wlan : function(i){
+        if(i > 4){
+            if(jQuery("#wifiLeftItem"+(i+1)).length == 0){
+                var sourceNode = jQuery("#wlanLeftPanel2");
+                var clonedNode = sourceNode.clone(true);
+                clonedNode.attr('id','wlanLeftPanel'+(i+1));
+                //id="capacity2" wifiAuthFailRate2
+                var childNode=clonedNode.find("#wifiLeftItem2").attr('id','wifiLeftItem'+(i+1));
+                childNode.find("#capacity2").attr("id","capacity"+(i+1));
+                childNode.find("#wifiAuthFailRate2").attr("id","wifiAuthFailRate"+(i+1));
+                childNode.find("#ClientState2").attr("id","ClientState"+(i+1));
+                jQuery("#wifiLeftItem"+(i+1)).on('click',function(e){
+                    RuckusWifiDashboard.wifiLeftItemClick(jQuery("#wifiLeftItem"+(i+1)));
+                });
+                //wifiNum
+                clonedNode.find('.leftnum').find('span').html(i+1);
+                jQuery("#wlanLeftPanel"+(i)).after(clonedNode);
+            }
+        }
+    },
+
+    //when creation is completed then reload wifi list and save the list
+    setWifiDataInfo :function(wifiList,isShowAdvanced){
+        var wifiRes =  wifiList;
+        if(wifiList.firstChild){
+            var wifiNum=wifiRes.childNodes.length;
+            isZeroIT=false;
+            $A(wifiRes.childNodes).each(function(wlansvc) {
+                var  wlanInfo ={};
+                var wlanKey="wlanId_"+ARF.j_getAttr(wlansvc, 'id', '');
+                wlanInfo.isShowAdvanced=isShowAdvanced;
+                wlanInfo.id=ARF.j_getAttr(wlansvc, 'id', '');
+                wlanInfo.wlanName=ARF.j_getAttr(wlansvc, 'name', '');
+                wlanInfo.acctUpdInterval=ARF.j_getAttr(wlansvc, 'acct-upd-interval', '');
+                wlanInfo.acctsvrId=ARF.j_getAttr(wlansvc,"acctsvr-id", '');
+                wlanInfo.aclId=ARF.j_getAttr(wlansvc,"acl-id", '1');
+                wlanInfo.authentication=ARF.j_getAttr(wlansvc,"authentication", '');
+                wlanInfo.authstats=ARF.j_getAttr(wlansvc,"authstats", '');
+                wlanInfo.autoProvisioning=ARF.j_getAttr(wlansvc,"auto-provisioning", '');
+                //console.log("=======autoProvisioning:" + wlanInfo.autoProvisioning + " & name:" + wlanInfo.wlanName);
+                if (wlanInfo.autoProvisioning=='enabled') {
+                    isZeroIT = true;
+                    //console.log("=======isZeroIT:" + isZeroIT);
+                }
+                wlanInfo.balance=ARF.j_getAttr(wlansvc,"balance", '1');
+                wlanInfo.bandBalance=ARF.j_getAttr(wlansvc,"band-balance", '1');
+                wlanInfo.bgscan=ARF.j_getAttr(wlansvc,"bgscan", '1');
+                wlanInfo.bssMinrate=ARF.j_getAttr(wlansvc,"bss-minrate", '');
+                wlanInfo.calledStationIdType=ARF.j_getAttr(wlansvc,"called-station-id-type", '');
+                wlanInfo.ciWhitelistId=ARF.j_getAttr(wlansvc,"ci-whitelist-id", '0');
+                wlanInfo.clientIsolation=ARF.j_getAttr(wlansvc,"client-isolation", '');
+                wlanInfo.description=ARF.j_getAttr(wlansvc,"description", '');
+                wlanInfo.devicepolicyId=ARF.j_getAttr(wlansvc,"devicepolicy-id", '');
+                wlanInfo.dhcpsvrId=ARF.j_getAttr(wlansvc,"dhcpsvr-id", '');
+                wlanInfo.disDgaf=ARF.j_getAttr(wlansvc,"dis-dgaf", '');
+                wlanInfo.do80211d=ARF.j_getAttr(wlansvc,"do-802-11d", 'enabled');
+                wlanInfo.doWmmAc=ARF.j_getAttr(wlansvc,"do-wmm-ac", 'disabled');
+                wlanInfo.enableType=ARF.j_getAttr(wlansvc,"enable-type", '0');
+                wlanInfo.encryption=ARF.j_getAttr(wlansvc,"encryption", '');
+                wlanInfo.fastBss=ARF.j_getAttr(wlansvc,"fast-bss", '');
+                wlanInfo.forceDhcp=ARF.j_getAttr(wlansvc,"force-dhcp", '0');
+                wlanInfo.forceDhcpTimeout=ARF.j_getAttr(wlansvc,"force-dhcp-timeout", '10');
+                wlanInfo.httpsRedirection=ARF.j_getAttr(wlansvc,"https-redirection", 'unknow');
+                wlanInfo.idleTimeout=ARF.j_getAttr(wlansvc,"idle-timeout", '');
+                wlanInfo.isGuest=ARF.j_getAttr(wlansvc,"is-guest", '');
+                wlanInfo.localBridge=ARF.j_getAttr(wlansvc,"local-bridge", '');
+                wlanInfo.maxClientsPerRadio=ARF.j_getAttr(wlansvc,"max-clients-per-radio", '100');
+                wlanInfo.maxIdleTimeouto=ARF.j_getAttr(wlansvc,"max-idle-timeout", '60');
+                wlanInfo.macAddrFormat=ARF.j_getAttr(wlansvc, 'mac-addr-format','0');
+                wlanInfo.ofdmRateOnly=ARF.j_getAttr(wlansvc,"ofdm-rate-only", '');
+                wlanInfo.option82=ARF.j_getAttr(wlansvc,"option82", '');
+                wlanInfo.option82AreaName=ARF.j_getAttr(wlansvc,"option82-areaName", '');
+                wlanInfo.option82Opt1=ARF.j_getAttr(wlansvc,"option82-opt1", '');
+                wlanInfo.option82Opt2=ARF.j_getAttr(wlansvc,"option82-opt2", '');
+                wlanInfo.option82Opt150=ARF.j_getAttr(wlansvc,"option82-opt150", '');
+                wlanInfo.option82Opt151=ARF.j_getAttr(wlansvc,"option82-opt151", '');
+                wlanInfo.parp=ARF.j_getAttr(wlansvc,"parp", '');
+                wlanInfo.policy6Id=ARF.j_getAttr(wlansvc,"policy6-id", '');
+                wlanInfo.policyId=ARF.j_getAttr(wlansvc,"policy-id", '');
+                wlanInfo.poolId=ARF.j_getAttr(wlansvc,"pool-id", '');
+                wlanInfo.precedenceId=ARF.j_getAttr(wlansvc,"precedence-id", '');
+                wlanInfo.roleBasedAccessCtrl=ARF.j_getAttr(wlansvc,"role-based-access-ctrl", '');
+                wlanInfo.ssid=ARF.j_getAttr(wlansvc,"ssid", '');
+                wlanInfo.staInfoExtraction=ARF.j_getAttr(wlansvc,"sta-info-extraction", '1');
+                wlanInfo.txRateConfig=ARF.j_getAttr(wlansvc,"tx-rate-config", '');
+                wlanInfo.usage=ARF.j_getAttr(wlansvc,"usage", 'user');
+                wlanInfo.vlanId=ARF.j_getAttr(wlansvc,"vlan-id", '1');
+                //Web Authentication
+                wlanInfo.webAuth=ARF.j_getAttr(wlansvc,"web-auth",'disabled');
+                //Hide SSID  close-system="true"
+                wlanInfo.closeSystem=ARF.j_getAttr(wlansvc,"close-system",'false');
+                //_avp-enabled
+                var avpPolicy=ARF.j_firstChild(wlansvc, 'avp-policy');
+                wlanInfo.AvpEnabled=ARF.j_getAttr(avpPolicy,"avp-enabled", 'disabled');
+                wlanInfo.avpdenyId=ARF.j_getAttr(avpPolicy,"avpdeny-id", '0');
+                //qos
+                var qos=ARF.j_firstChild(wlansvc, 'qos');
+                var uplink=ARF.j_getAttr(qos,"uplink-preset",'DISABLE');
+                var downlink=ARF.j_getAttr(qos,"downlink-preset",'DISABLE');
+                if( uplink == "null" || downlink == "null"){
+                    wlanInfo.downlinkPreset = 'DISABLE';
+                    wlanInfo.uplinkPreset= 'DISABLE' ;
+                }else{
+                    wlanInfo.downlinkPreset=downlink;
+                    wlanInfo.uplinkPreset=uplink;
+                }
+                //wpa
+                var wpa=ARF.j_firstChild(wlansvc, 'wpa');
+                wlanInfo.wpaRow = false;
+                if (wpa)
+                    wlanInfo.wpaRow = true;
+                //Priority
+                queuePriority = ARF.j_firstChild(wlansvc, 'queue-priority');
+                wlanInfo.priority = (ARF.j_getAttr(queuePriority, 'voice', '0') != '0');
+                wlanInfo.cipher=ARF.j_getAttr(wpa,"cipher");
+                wlanInfo.passphrase=ARF.j_getAttr(wpa,"passphrase",'');
+                wlanInfo.Xpassphrase=ARF.j_getAttr(wpa,"passphrase",'');
+                wlanInfo.dynamicPsk=ARF.j_getAttr(wpa,"dynamic-psk",'disabled');
+                wlanInfo.dynamicPskLen=ARF.j_getAttr(wpa,"dynamic-psk-len", '62');
+                wlanInfo.dpskType=ARF.j_getAttr(wpa,"dpsk-type",'secure');
+                wlanInfo.expireData=ARF.j_getAttr(wpa,"expire", '0');
+                wlanInfo.startPoint=ARF.j_getAttr(wpa,"start-point", 'first-use');
+                wlanInfo.limitDpsk=ARF.j_getAttr(wpa,"limit-dpsk", 'disabled');
+                wlanInfo.limitDpskVal=ARF.j_getAttr(wpa,"limit-dpsk-val",'1');
+                //queue-priority
+                var queuePriorityList=ARF.j_firstChild(wlansvc, 'queue-priority');
+                wlanInfo.background=ARF.j_getAttr(queuePriorityList,"background");
+                wlanInfo.data=ARF.j_getAttr(queuePriorityList,"data");
+                wlanInfo.video=ARF.j_getAttr(queuePriorityList,"video");
+                wlanInfo.voice=ARF.j_getAttr(queuePriorityList,"voice");
+                //rrm
+                var rrmList=ARF.j_firstChild(wlansvc, 'rrm');
+                wlanInfo.neighborReport=ARF.j_getAttr(rrmList,"neighbor-report");
+                //smartcast
+                var smartcastList=ARF.j_firstChild(wlansvc, 'smartcast');
+                wlanInfo.mcastFilter=ARF.j_getAttr(smartcastList,"mcast-filter");
+                //wlan-schedule
+                var wlanScheduleList=ARF.j_firstChild(wlansvc, 'wlan-schedule');
+                wlanInfo.wlanScheduleList=ARF.j_getAttr(wlanScheduleList,"value");
+                ///////////////////////////////
+                wlanInfo.nasidType=ARF.j_getAttr(wlansvc,"nasid-type", '');
+                wlanInfo.pmkCacheTime=ARF.j_getAttr(wlansvc,"pmk-cache-time", '');
+                wlanInfo.papAuthenticator=ARF.j_getAttr(wlansvc,"pap-authenticator", '');
+                wlanInfo.sendEapFailure=ARF.j_getAttr(wlansvc,"send-eap-failure", '');
+                wlanInfo.nasidStr=ARF.j_getAttr(wlansvc,"nasid-str", '');
+                wlanInfo.pmkCacheReconnect=ARF.j_getAttr(wlansvc,"pmk-cache-for-reconnect", '');
+                wlanInfo.roamingInterimUpdate=ARF.j_getAttr(wlansvc,"roaming-interim-update", '');
+                wlanInfo.authsvr_id=ARF.j_getAttr(wlansvc,"authsvr-id", '');
+                wlanInfo.PEAP=ARF.j_getAttr(wlansvc,"eap-type", '');
+                wlanInfo.enGracePeriodSets=ARF.j_getAttr(wlansvc,"en-grace-period-sets", '');
+                wlanInfo.gracePeriodSets=ARF.j_getAttr(wlansvc,"grace-period-sets", '');
+
+                //guestservice-id
+                wlanInfo.guestserviceId=ARF.j_getAttr(wlansvc,"guestservice-id", '');
+                wlanInfo.hotspotId=ARF.j_getAttr(wlansvc,"hotspot-id", '');
+                wlanInfo.hotspotRevision=ARF.j_getAttr(wlansvc,"hotspot-revision", '');
+
+                //set wifi info in localStorage
+
+                if(localStorage){
+                    try{
+                        wlanInfo = JSON.stringify(wlanInfo);
+                        localStorage[wlanKey]=wlanInfo;
+                        //console.log("===saving=====" + localStorage.getItem("wlanId_"+wlanKey));
+                    }catch(oException){
+                        if(oException.name == 'QuotaExceededError'){
+                            console.log('Beyond the limitation of local storage!');
+                            //If you don't important historical information, can be empty before setting
+                            localStorage.removeItem(wlanKey);
+                            localStorage[wlanKey]=wlanInfo;
+                        }else{
+                            console.log(oException);
+                            //If you don't important historical information, can be empty before setting
+                            localStorage.removeItem(wlanKey);
+                            localStorage[wlanKey]=wlanInfo;
+                        }
+                    }
+                }else{
+                    console.log('This browser does NOT support localStorage,Please change your browser');
+                }
+            });
+        }
+    },
+
+    //according wifiId to get wifi info from localStorage
+    getWlanInfoData : function(wifiKey){
+        //get wlan info in localStorage
+        if(localStorage){
+            var wlanData = localStorage[wifiKey];
+            wlanData = JSON.parse(wlanData);
+        }else{
+            console.log('This browser does NOT support localStorage,Please change your browser');
+        }
+        return wlanData;
+    }
+}
+
+
+
+
+
+
+
